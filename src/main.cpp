@@ -1,159 +1,114 @@
 #include <Arduino.h>
+#include <SPI.h>
 
-#undef USE_CONSOLE
+// #define USE_CONSOLE
 
-const int DEADZONE = 20;   //joystick deadzone
-const unsigned long COMMAND_TIMEOUT_MS = 2000;
+const int LED = 9;
+const int SLAVE_SELECT = 10;
 
-typedef struct RobotCommand {
-  // sync. Must be 0xAA
-  byte preamble;
-  // platform control. All values in range [-100/+100]
-  char drive;
-  char steer;
-  // arm control. All values in range [-100/+100]
-  char yaw;
-  char shoulder;
-  char elbow;
-  char gripper;
-  char spare;
-  // sync. Must be 0x55
-  byte postamble;
+const int POT_POWER = 6;
+const int POT = A6;
 
-  // Initialise
-  RobotCommand() { memset(this, 0, sizeof(RobotCommand)); preamble = 0xAA; postamble = 0x55; }
-} RobotCommand;
+const int SWITCH_LEFT = 3;
+const int SWITCH_RIGHT = 2;
 
-RobotCommand commandUpdate;
-bool commandUpdateReceived = false;
-unsigned spiReceiveCount = 0;
-byte* const spiReceiveBuffer = (byte* const)&commandUpdate;
+const int JOY_POWER = 5;
+const int L_JOY_VER = 20;
+const int L_JOY_HOZ = 21;
+const int R_JOY_VER = 18;
+const int R_JOY_HOZ = 19;
+const int L_JOY_SWITCH = 0;
+const int R_JOY_SWITCH = 1;
 
-void receiveSpiData() {
+#ifdef USE_CONSOLE
+  char buffer[256];
+#endif
 
-  byte b = SPI.transfer(0);
+#include "RobotCommand.h"
 
-  // Looking for the start of the command
-  if (spiReceiveCount == 0) {
-    if (b == 0xAA) {
-      // Start sync received
-      commandUpdateReceived = false;
-      spiReceiveBuffer[spiReceiveCount++] = b;
-    }
-    else {
-      // Invalid sync received
-      spiReceiveCount = 0;  // Start again
-    }
+void sendUpdate(RobotCommand const& update) {
+  digitalWrite(SLAVE_SELECT, LOW);
+  byte const* data = (byte const*)&update;
+  for (unsigned i=0; i < sizeof(RobotCommand); i++) {
+    SPI.transfer(*data++);
   }
-  // Looking for the end of the command
-  else if (spiReceiveCount < sizeof(RobotCommand)) {
-    if (b == 0x55) {
-      // End sync received
-      spiReceiveBuffer[spiReceiveCount] = b;
-      spiReceiveCount = 0;
-      commandUpdateReceived = true;
-    }
-    else {
-      // Invalid sync received
-      spiReceiveCount = 0;  // Start again
-    }
-  }  // In the middle of receiving the command
-  else {
-    // Store received date
-    spiReceiveBuffer[spiReceiveCount++] = b;
-  }
-
+  digitalWrite(SLAVE_SELECT, HIGH);
 }
 
 void setup() {
 
-  spiReceiveCount = 0;
-  commandUpdateReceived = false;
+  pinMode(SLAVE_SELECT, OUTPUT);
+  digitalWrite(SLAVE_SELECT, HIGH);
 
-  pinMode(2, OUTPUT);       //set up motor driver outputs
-  pinMode(3, OUTPUT);
-  pinMode(4, OUTPUT);
-  pinMode(5, OUTPUT);
-  pinMode(6, OUTPUT);
-  pinMode(7, OUTPUT);
-  pinMode(8, OUTPUT);
-  pinMode(9, OUTPUT);
+  pinMode(LED, OUTPUT);
+  digitalWrite(LED, LOW);
+  pinMode(POT_POWER, OUTPUT);
+  digitalWrite(POT_POWER, HIGH);
+  pinMode(JOY_POWER, OUTPUT);
+  digitalWrite(JOY_POWER, HIGH);
 
-  pinMode(14, INPUT);      //set up joystick inputs
-  pinMode(15, INPUT);
-  pinMode(16, INPUT);
+  pinMode(POT, INPUT);
+  pinMode(SWITCH_LEFT, INPUT_PULLUP);
+  pinMode(SWITCH_RIGHT, INPUT_PULLUP);
+  pinMode(R_JOY_VER, INPUT);
+  pinMode(R_JOY_HOZ, INPUT);
+  pinMode(L_JOY_VER, INPUT);
+  pinMode(L_JOY_HOZ, INPUT);
+  pinMode(L_JOY_SWITCH, INPUT_PULLUP);
+  pinMode(R_JOY_SWITCH, INPUT_PULLUP);
 
-  digitalWrite(8, HIGH);   //turns all motors off
-  digitalWrite(9, HIGH);
+  SPI.begin();
+  SPI.setClockDivider(SPI_CLOCK_DIV128);
 
-  SPI.begin(SPI_SLAVE);
-  SPI.attachInterrupt(receiveSpiData);
-
- #ifdef USE_CONSOLE
-   Serial.begin(115200);
- #endif
-
+#ifdef USE_CONSOLE
+  Serial.begin(115200);
+#endif
 }
 
-void ProcessJoystickChannel(const int analogInput, const int directionPin, const int speedPin) //constant joystick convertor from the loop
-{
-  int val = analogRead(analogInput);
-  //Serial.println(val);
-  val = map(val, 0, 1023, -255, 255);     //maps the values
-  //Serial.println(rightVertical);
-  if (abs(val) <= DEADZONE)               //if inside deadzone do nothing
-  {
-    digitalWrite(directionPin, HIGH);
-    analogWrite(speedPin, 255);
-  }
-  else if (val < 0)                      //if less than 0 go forward
-  {
-    digitalWrite(directionPin, LOW);
-    analogWrite(speedPin, abs(val));
-  }
-  else {                                //else go backward
-    digitalWrite(directionPin, HIGH);
-    analogWrite(speedPin, 255-abs(val));
-  }
-}
+void loop() {
 
-/* Update the platform motion
-*/
-void updatePlatform(int steer, int drive) {
+  // Robot platform controls
+  int drive = analogRead(L_JOY_VER);
+  int steer = analogRead(L_JOY_HOZ);
+  drive = map(drive, 0, 1023, 100, -100);
+  steer = map(steer, 0, 1023, -100, 100);
 
-}
+  // Robot arm controls
+  int shoulder = analogRead(POT);
+  int elbow = analogRead(R_JOY_HOZ);
+  int gripper = analogRead(R_JOY_VER);
+  shoulder = map(shoulder, 0, 1023, -100, 100);
+  elbow = map(elbow, 0, 1023, -100, 100);
+  gripper = map(gripper, 0, 1023, 100, -100);
 
-/* Update the arm position
-*/
-void updateArm(int yaw, int shoulder, int elbow, int gripper) {
+  int RotateL = !digitalRead(SWITCH_LEFT);
+  int RotateR = !digitalRead(SWITCH_RIGHT);
+  int SwitchL = !digitalRead(L_JOY_SWITCH);
+  int SwitchR = !digitalRead(R_JOY_SWITCH);
 
-}
+  int yaw = (RotateL ? -100 : (RotateR ? 100 : 0));
+  int spare = (SwitchL ? -100 : (SwitchR ? 100 : 0));
 
-/* Turn off all motors, make robot safe
-*/
-void allOff() {
-  updatePlatform(0, 0);
-  updateArm(0, 0, 0, 0);
-}
+#ifdef USE_CONSOLE
+  sprintf(buffer, "S=%4d, D=%4d, S=%4d, G=%4d, E=%4d", shoulder, drive, steer, gripper, elbow);
+  Serial.print(buffer);
+  sprintf(buffer,", RL=%d, RR=%d, SL=%d, SR=%d",RotateL,RotateR,SwitchL,SwitchR);
+  Serial.println(buffer);
+#endif
 
-void loop()
-{
-  unsigned long lastUpdateTime = millis();
+  // Send the command update to the robot
+  RobotCommand update;
+  update.drive = drive;
+  update.steer = steer;
+  update.yaw = yaw;
+  update.shoulder = shoulder;
+  update.elbow = elbow;
+  update.gripper = gripper;
+  update.buzzer = spare;
+  printRobotCommand(update);
+  sendUpdate(update);
 
-  if (commandUpdateReceived) {
-    lastUpdateTime = millis();
-    updatePlatform(commandUpdate.steer, commandUpdate.drive);
-    updateArm(commandUpdate.yaw, commandUpdate.shoulder, commandUpdate.elbow, commandUpdate.gripper);
-    commandUpdateReceived = false;
-  }
-
-  if ((millis() - lastUpdateTime) > COMMAND_TIMEOUT_MS) {
-    lastUpdateTime = millis();
-    allOff();
-  }
-
-
-    ProcessJoystickChannel(16, 8, 9);
-    ProcessJoystickChannel(17, 11, 10);
-
+  // Update every 100 ms
+  digitalWrite(LED, !digitalRead(LED));
+  delay(100);
 }
