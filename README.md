@@ -7,7 +7,7 @@ The controls consist of two joysticks, a three way switch and a potentiometer. A
 ![](images/PinLayout.JPG)
 Top View                   |  Side View
 :-------------------------:|:-------------------------:
-![](images/ControllerTop.jpg) | ![](images/ControllerSide.jpg)
+![](images/ControllerTop.jpg) | ![](images/ControllerSide.jpg width=49%)
 
 
 <img src="images/PinLayout.JPG">
