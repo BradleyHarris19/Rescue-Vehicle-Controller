@@ -12,3 +12,4 @@ The controls consist of two joysticks, a three way switch and a potentiometer. A
   <tr>
     <img src="images/ControllerSide.jpg" width=49% height=49%/>
   </tr>
+</table>
